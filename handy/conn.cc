@@ -130,7 +130,7 @@ void TcpConn::handleRead(const TcpConnPtr &con) {
                 readcb_(con);
             }
             break;
-        } else if (channel_->fd() == -1 || rd == 0 || rd == -1) {
+        } else if (channel_->fd() == -1 || rd == 0 || rd == -1) {//这里的-1和Channel::close()耦合优点严重
             cleanup(con);
             break;
         } else {  // rd > 0
@@ -206,9 +206,9 @@ ssize_t TcpConn::isend(const char *buf, size_t len) {
 void TcpConn::send(Buffer &buf) {
     if (channel_) {
         if (channel_->writeEnabled()) {  // just full
-            output_.absorb(buf);
+            output_.absorb(buf);    //absorb会清空buf
         }
-        if (buf.size()) {
+        if (buf.size()) {   //如果没有清空
             ssize_t sended = isend(buf.begin(), buf.size());
             buf.consume(sended);
         }
@@ -331,10 +331,12 @@ void TcpServer::handleAccept() {
                 con->onMsg(codec_->clone(), msgcb_);
             }
         };
-        if (b == base_) {
+        if (b == base_) { 
             addcon();
         } else {
-            b->safeCall(move(addcon));
+            b->safeCall(move(addcon));//b->safeCall,注意这里是b来调用safeCall，就直接使用b的task_任务队列来实现了连接分配的同步操作。妙啊，并且进而使用管道来实现通知机制。妙！epoll监测fd并不一定将注意力委托在fd上，我们可以将task委托给epoll机制。
+            //通过委托的方式移交执行权，来实现线程同步操作。
+            //注意这里连接是轮询分配的。bases_->allocBase()决定。
         }
     }
     if (lfd >= 0 && errno != EAGAIN && errno != EINTR) {

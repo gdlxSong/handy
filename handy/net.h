@@ -59,7 +59,7 @@ struct Buffer {
     char *data() const { return buf_ + b_; }
     char *begin() const { return buf_ + b_; }
     char *end() const { return buf_ + e_; }
-    char *makeRoom(size_t len);
+    char *makeRoom(size_t len); //扩展可用空间
     void makeRoom() {
         if (space() < exp_)
             expand(0);
@@ -88,7 +88,7 @@ struct Buffer {
             clear();
         return *this;
     }
-    Buffer &absorb(Buffer &buf);
+    Buffer &absorb(Buffer &buf);        //吸收buf内容
     void setSuggestSize(size_t sz) { exp_ = sz; }
     Buffer(const Buffer &b) { copyFrom(b); }
     Buffer &operator=(const Buffer &b) {

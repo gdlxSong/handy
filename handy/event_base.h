@@ -99,8 +99,8 @@ struct Channel : private noncopyable {
     void handleWrite() { writecb_(); }
 
    protected:
-    EventBase *base_;
-    PollerBase *poller_;
+    EventBase *base_;           // 事件派发器
+    PollerBase *poller_;        //Channel管理器
     int fd_;
     short events_;
     int64_t id_;

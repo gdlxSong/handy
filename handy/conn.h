@@ -161,4 +161,4 @@ struct HSHA {
     ThreadPool threadPool_;
 };
 
-}  // namespace handy
+}//namespace handy

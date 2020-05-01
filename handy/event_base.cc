@@ -33,7 +33,7 @@ struct IdleIdImp {
     IdleIdImp(list<IdleNode> *lst, Iter iter) : lst_(lst), iter_(iter) {}
     list<IdleNode> *lst_;
     Iter iter_;
-};
+};//其实就是空闲连接的句柄
 
 struct EventsImp {
     EventBase *base_;
@@ -43,18 +43,18 @@ struct EventsImp {
     int nextTimeout_;
     SafeQueue<Task> tasks_;
 
-    std::map<TimerId, TimerRepeatable> timerReps_;
-    std::map<TimerId, Task> timers_;
+    std::map<TimerId, TimerRepeatable> timerReps_;  //定时器重复执行
+    std::map<TimerId, Task> timers_;                //定时器执行一次
     std::atomic<int64_t> timerSeq_;
     // 记录每个idle时间（单位秒）下所有的连接。链表中的所有连接，最新的插入到链表末尾。连接若有活动，会把连接从链表中移到链表尾部，做法参考memcache
-    std::map<int, std::list<IdleNode>> idleConns_;
+    std::map<int, std::list<IdleNode>> idleConns_;//.first是表示的连接空闲超时的时间
     std::set<TcpConnPtr> reconnectConns_;
     bool idleEnabled;
 
     EventsImp(EventBase *base, int taskCap);
     ~EventsImp();
     void init();
-    void callIdles();
+    void callIdles();                   //检测连接超时，对超时的连接调用连接回调
     IdleId registerIdle(int idle, const TcpConnPtr &con, const TcpCallBack &cb);
     void unregisterIdle(const IdleId &id);
     void updateIdle(const IdleId &id);
@@ -161,6 +161,7 @@ void EventsImp::init() {
         } else if (r == 0) {
             delete ch;
         } else if (errno == EINTR) {
+            //linux内核2.6以下版本没有自动中断重启功能
         } else {
             fatal("wakeup channel read error %d %d %s", r, errno, strerror(errno));
         }
@@ -190,11 +191,11 @@ void EventsImp::callIdles() {
         auto lst = l.second;
         while (lst.size()) {
             IdleNode &node = lst.front();
-            if (node.updated_ + idle > now) {
+            if (node.updated_ + idle > now) {//检测连接存活时间是否超时，优点类似http的keep-alive，当然keepAlive也是这样是实现的
                 break;
             }
             node.updated_ = now;
-            lst.splice(lst.end(), lst, lst.begin());
+            lst.splice(lst.end(), lst, lst.begin());    //c++11的链表元素转移操作，没有迭代器非法化
             node.cb_(node.con_);
         }
     }
@@ -202,13 +203,13 @@ void EventsImp::callIdles() {
 
 IdleId EventsImp::registerIdle(int idle, const TcpConnPtr &con, const TcpCallBack &cb) {
     if (!idleEnabled) {
-        base_->runAfter(1000, [this] { callIdles(); }, 1000);
-        idleEnabled = true;
+        base_->runAfter(1000, [this] { callIdles(); }, 1000);//1000ms之后检测超时，1000为一个检测周期
+        idleEnabled = true;//使能空闲队列
     }
     auto &lst = idleConns_[idle];
     lst.push_back(IdleNode{con, util::timeMilli() / 1000, move(cb)});
     trace("register idle");
-    return IdleId(new IdleIdImp(&lst, --lst.end()));
+    return IdleId(new IdleIdImp(&lst, --lst.end()));  //该空闲连接的句柄。
 }
 
 void EventsImp::unregisterIdle(const IdleId &id) {
@@ -219,7 +220,7 @@ void EventsImp::unregisterIdle(const IdleId &id) {
 void EventsImp::updateIdle(const IdleId &id) {
     trace("update idle");
     id->iter_->updated_ = util::timeMilli() / 1000;
-    id->lst_->splice(id->lst_->end(), *id->lst_, id->iter_);
+    id->lst_->splice(id->lst_->end(), *id->lst_, id->iter_);//移动向队尾
 }
 
 void EventsImp::refreshNearest(const TimerId *tid) {
@@ -228,7 +229,7 @@ void EventsImp::refreshNearest(const TimerId *tid) {
     } else {
         const TimerId &t = timers_.begin()->first;
         nextTimeout_ = t.first - util::timeMilli();
-        nextTimeout_ = nextTimeout_ < 0 ? 0 : nextTimeout_;
+        nextTimeout_ = nextTimeout_ < 0 ? 0 : nextTimeout_;//计算epoll_wait的等待时间
     }
 }
 
@@ -247,7 +248,7 @@ TimerId EventsImp::runAt(int64_t milli, Task &&task, int64_t interval) {
     if (interval) {
         TimerId tid{-milli, ++timerSeq_};
         TimerRepeatable &rtr = timerReps_[tid];
-        rtr = {milli, interval, {milli, ++timerSeq_}, move(task)};
+        rtr = {milli, interval, {milli, ++timerSeq_}, move(task)};//应当注意这里{milli, ++timerSeq_}是正值时间
         TimerRepeatable *tr = &rtr;
         timers_[tr->timerid] = [this, tr] { repeatableTimeout(tr); };
         refreshNearest(&tr->timerid);
@@ -295,9 +296,9 @@ void MultiBase::loop() {
 Channel::Channel(EventBase *base, int fd, int events) : base_(base), fd_(fd), events_(events) {
     fatalif(net::setNonBlock(fd_) < 0, "channel set non block failed");
     static atomic<int64_t> id(0);
-    id_ = ++id;
+    id_ = ++id;                                 
     poller_ = base_->imp_->poller_;
-    poller_->addChannel(this);
+    poller_->addChannel(this);                 
 }
 
 Channel::~Channel() {
@@ -377,7 +378,7 @@ void TcpConn::addIdleCB(int idle, const TcpCallBack &cb) {
 
 void TcpConn::reconnect() {
     auto con = shared_from_this();
-    getBase()->imp_->reconnectConns_.insert(con);
+    getBase()->imp_->reconnectConns_.insert(con);//保留
     long long interval = reconnectInterval_ - (util::timeMilli() - connectedTime_);
     interval = interval > 0 ? interval : 0;
     info("reconnect interval: %d will reconnect after %lld ms", reconnectInterval_, interval);
